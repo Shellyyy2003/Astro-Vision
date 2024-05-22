@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AstroVision: Interactive Celestial Mapping Platform</title>
+    <style>
+        .form-group {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .form-group input, .form-group button {
+            margin: 5px;
+        }
+        .star-chart-container {
+            margin: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: center;
+        }
+        .star-chart-container {
+        display: flex;  /* 使用flex布局 */
+        flex-wrap: nowrap;  /* 不允许子项目换行 */
+        justify-content: space-around;  /* 子项目间距平均分布 */
+        align-items: center;  /* 垂直居中对齐 */
+        overflow: hidden;  /* 隐藏溢出的内容 */
+        padding: 10px;
+        }
+        .star-chart-container > div {
+            flex: 1 1 50%;  /* 让每个容器占据50%的宽度 */
+            max-width: 50%;  /* 最大宽度为50% */
+        }
+        .star-chart-container img {
+            width: 100%;  /* 图像宽度100%，保证充满容器 */
+            height: auto;  /* 高度自动，保持比例 */
+        }
+        .selected-row {
+            background-color: #e7e7e7; /* or any other color */
+        }
+
+        #starChartDiv, #starChartDiv2 {
+            width: 50%;
+            display: inline-block;
+        }
+
+        #csvDataTable {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            margin-top: 20px;
+        }
+        
+    </style>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const form = document.getElementById("imageForm");
+            const starChartButton = document.getElementById("starChartButton");
+            const imageDiv = document.getElementById("imageDiv");
+            const starChartDiv = document.getElementById("starChartDiv");
+            const starChartDiv2 = document.getElementById("starChartDiv2");
+
+            form.addEventListener("submit", function(event) {
+                event.preventDefault(); 
+
+                let formData = {
+                    ra: parseFloat(document.getElementById("ra").value),
+                    dec: parseFloat(document.getElementById("dec").value),
+                    size: parseInt(document.getElementById("size").value) || 240
+                };
+                const uploadForm = document.getElementById("uploadForm");
+
+                uploadForm.addEventListener("submit", function(event) {
+                    event.preventDefault();
+                    uploadCSV();
+                });
+ 
+
+                fetch('/geturl', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    const images = data.images;
+                    imageDiv.innerHTML = "";
+
+                    images.forEach(image => {
+                        const imgContainer = document.createElement("div");
+                        imgContainer.style.backgroundColor = image.color;
+                        imgContainer.style.display = "inline-block";
+                        imgContainer.style.margin = "10px";
+                        imgContainer.style.padding = "10px";
+                        imgContainer.style.borderRadius = "5px";
+
+                        const imgElement = document.createElement("img");
+                        imgElement.src = image.url;
+                        imgElement.style.width = "100%";
+                        imgElement.style.height = "auto";
+                        imgContainer.appendChild(imgElement);
+                        
+                        const label = document.createElement("p");
+                        label.innerText = image.filter.toUpperCase() + ' Filter';
+                        label.style.color = "white";
+                        label.style.textAlign = "center";
+                        imgContainer.appendChild(label);
+
+                        imageDiv.appendChild(imgContainer);
+                    });
+                });
+            });
+
+            function fetchStarChart(url, ra, dec, divId) {
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ra, dec })
+                })
+                .then(response => response.blob())
+                .then(imageBlob => {
+                    const image = document.createElement('img');
+                    image.src = URL.createObjectURL(imageBlob);
+                    const starChartDiv = document.getElementById(divId);
+                    starChartDiv.innerHTML = "";
+                    starChartDiv.appendChild(image);
+                });
+            }
+
+            function normalizeColumnName(columnName) {
+                // Convert known column names to a consistent case
+                const normalizedNames = {
+                    'ra': 'ra',
+                    'RA': 'ra',
+                    'dec': 'dec',
+                    'DEC': 'dec',
+                    'Dec': 'dec',
+                };
+                return normalizedNames[columnName] || columnName.toLowerCase();
+            }
+        
+            function fetchAndDisplayTable() {
+                const selectedRows = document.querySelectorAll('.selected-row');
+                selectedRows.forEach(row => row.classList.remove('selected-row'));
+                fetch('/get_csv_data')
+                .then(response => response.json())
+                .then(responseData => {
+                    const data = JSON.parse(responseData.data); // 解析数据部分
+                    const columns = responseData.columns;
+                    const tableDiv = document.getElementById('csvDataTable');
+                    const table = document.createElement('table');
+                    table.border = '1';
+                    table.id = 'dataTable'; // Add an ID to the table for easy access
+
+                    const raIndex = columns.indexOf('RA');
+                    let decIndex = columns.indexOf('Dec');
+                    if (decIndex === -1) {
+                        decIndex = columns.indexOf('DEC'); // Fallback to 'DEC' if 'Dec' not found
+                    }
+
+                    // 动态创建表头基于列名
+                    let header = table.createTHead();
+                    let headerRow = header.insertRow(0);
+                    columns.forEach(column => {
+                        headerRow.insertCell().innerText = column;
+                    });
+
+                    // 填充数据到表格
+                    let tbody = table.createTBody(); // Create a tbody element to hold rows
+                    data.forEach((item, index) => {
+                        let row = tbody.insertRow();
+                        columns.forEach(column => {
+                            row.insertCell().innerText = item[column];
+                        });
+                        // Attach the click event handler to the row
+                        row.addEventListener('click', () => handleRowClick(item, index));
+                    });
+
+                    tableDiv.innerHTML = ''; // Clear any existing table
+                    tableDiv.appendChild(table); // Append the new table to the div
+                    attachRowHandlers(raIndex, decIndex);
+                });
+            }
+
+            function attachRowHandlers(raIndex, decIndex) {
+                const rows = document.querySelectorAll('#dataTable tbody tr');
+                rows.forEach(row => {
+                    row.onclick = () => {
+                        const ra = row.cells[raIndex].innerText;
+                        const dec = row.cells[decIndex].innerText;
+                        // Assuming you have a function that handles the row click
+                        handleRowClick(ra, dec);
+                    };
+                });
+            }
+
+            function handleRowClick(ra, dec) {
+                // Clear any existing content
+                document.getElementById("imageDiv").innerHTML = "";
+                document.getElementById("starChartDiv").innerHTML = "";
+                document.getElementById("starChartDiv2").innerHTML = "";
+
+                // Update inputs
+                document.getElementById("ra").value = ra;
+                document.getElementById("dec").value = dec;
+
+                // Fetch and update images and star charts
+                const size = document.getElementById("size").value || "240";
+                updateImages(ra, dec, size);
+                fetchStarChart('/get_unchanged_star_chart', ra, dec, 'starChartDiv');
+                fetchStarChart('/get_star_chart', ra, dec, 'starChartDiv2');
+            }
+            
+            function attachRowHandlers(raIndex, decIndex) {
+                const rows = document.querySelectorAll('#dataTable tbody tr');
+                rows.forEach(row => {
+                    row.onclick = () => {
+                        // Remove 'selected-row' class from all rows
+                        rows.forEach(r => r.classList.remove('selected-row'));
+                        
+                        // Add 'selected-row' class to the clicked row
+                        row.classList.add('selected-row');
+                        
+                        const ra = row.cells[raIndex].innerText;
+                        const dec = row.cells[decIndex].innerText;
+                        // Assuming you have a function that handles the row click
+                        handleRowClick(ra, dec);
+                    };
+                });
+            }
+
+        function updateStarChartsAndInputs(ra, dec, index) {
+            fetchStarChart('/get_unchanged_star_chart', ra, dec, 'starChartDiv', index);
+            fetchStarChart('/get_star_chart', ra, dec, 'starChartDiv2', index);
+            document.getElementById("ra").value = ra;
+            document.getElementById("dec").value = dec;
+
+            const size = document.getElementById("size").value || "240"; // 获取尺寸或设置默认值为240
+        }
+
+
+        function updateImages(ra, dec) {
+            const size = document.getElementById("size").value || "240"; // 获取尺寸或设置默认值为240
+
+            fetch('/geturl', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ ra, dec, size })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const images = data.images;
+                const imageDiv = document.getElementById("imageDiv");
+                imageDiv.innerHTML = ""; // 清除当前的图像
+
+                images.forEach(image => {
+                    const imgContainer = document.createElement("div");
+                    imgContainer.style.backgroundColor = image.color;
+                    imgContainer.style.display = "inline-block";
+                    imgContainer.style.margin = "10px";
+                    imgContainer.style.padding = "10px";
+                    imgContainer.style.borderRadius = "5px";
+
+                    const imgElement = document.createElement("img");
+                    imgElement.src = image.url;
+                    imgElement.style.width = "100%";
+                    imgElement.style.height = "auto";
+                    imgContainer.appendChild(imgElement);
+
+                    const label = document.createElement("p");
+                    label.innerText = image.filter.toUpperCase() + ' Filter';
+                    label.style.color = "white";
+                    label.style.textAlign = "center";
+                    imgContainer.appendChild(label);
+
+                    imageDiv.appendChild(imgContainer);
+                });
+            });
+        }
+
+        function uploadCSV() {
+            event.preventDefault();  // Prevent the default form submission
+            const formData = new FormData();
+            const fileInput = document.getElementById('fileInput');
+            if (fileInput.files.length === 0) {
+                alert('Please select a file to upload.');
+                return;
+            }
+            formData.append('file', fileInput.files[0]);
+
+            fetch('/upload_csv', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('File uploaded successfully!');
+                    fetchAndDisplayTable(); // Re-fetch and display the CSV data
+                } else {
+                    alert('Failed to upload file: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Error: ' + error);
+            });
+        }
+
+        function fetchStarChart(url, ra, dec, divId, highlightIndex = -1) {
+            let timeoutTrigger = setTimeout(() => {
+                // 如果10秒后还没有响应，则重新发起请求只请求选中的点
+                console.log('Timeout occurred, requesting only selected point');
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ra, dec, highlightIndex, onlySelected: true })
+                })
+                .then(response => response.blob())
+                .then(imageBlob => {
+                    updateImageDiv(imageBlob, divId);
+                })
+                .catch(error => console.error('Error fetching selected star chart:', error));
+            }, 10000); // 设置超时为10秒
+
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ ra, dec, highlightIndex })
+            })
+            .then(response => response.blob())
+            .then(imageBlob => {
+                clearTimeout(timeoutTrigger); // 如果请求在10秒内完成，取消超时处理
+                updateImageDiv(imageBlob, divId);
+            })
+            .catch(error => {
+                console.error('Error fetching star chart:', error);
+                clearTimeout(timeoutTrigger); // 保证在发生错误时清除计时器
+            });
+        }
+
+        function updateImageDiv(imageBlob, divId) {
+            const image = document.createElement('img');
+            image.src = URL.createObjectURL(imageBlob);
+            const starChartDiv = document.getElementById(divId);
+            starChartDiv.innerHTML = "";
+            starChartDiv.appendChild(image);
+        }
+
+        starChartButton.addEventListener("click", function(event) {
+            event.preventDefault(); 
+
+            const ra = document.getElementById("ra").value;
+            const dec = document.getElementById("dec").value;
+
+            fetchStarChart('/get_unchanged_star_chart', ra, dec, 'starChartDiv');
+            fetchStarChart('/get_star_chart', ra, dec, 'starChartDiv2');
+            fetchAndDisplayTable();
+        });
+    });
+    </script>
+</head>
+<body>
+    <h1>AstroVision: Interactive Celestial Mapping Platform</h1>
+    <div class="form-group">
+        <form id="imageForm">
+            RA: <input type="text" id="ra" name="ra">
+            DEC: <input type="text" id="dec" name="dec">
+            Image Size: <input type="text" id="size" name="size" placeholder="240">
+            <input type="submit" value="Get Images">
+        </form>
+        <form id="uploadForm" action="/upload_csv" method="post" enctype="multipart/form-data">
+            <input type="file" id="fileInput" name="file">
+            <input type="submit" value="Upload">
+        </form>
+        <button id="starChartButton">Get Star Chart</button>
+    </div>
+    <div id="imageDiv"></div>
+    <div class="star-chart-container">
+        <div id="starChartDiv"></div>
+        <div id="starChartDiv2"></div>
+    </div>
+    <div id="csvDataTable"></div>
+</body>
+</html>
